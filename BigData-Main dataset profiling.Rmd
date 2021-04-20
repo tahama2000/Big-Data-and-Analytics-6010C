@@ -1,0 +1,226 @@
+---
+title: "The Story Behind The 2020 U.S. Presidential Election: A Big Data Analysis using Social Media"
+author: "Team C"
+date: "3/3/2021"
+output:
+  pdf_document: default
+  html_document: default
+  always_allow_html : TRUE
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+knitr::opts_knit$set(always_allow_html = TRUE)
+```
+
+```{r libraries, include=FALSE}
+library("tidyverse")
+library("visNetwork")
+library(ggplot2)
+library(dplyr)
+#library(reshape2)
+library(gridExtra)
+library(GGally) # ggpairs() for scatterplot matrix
+library(RColorBrewer)
+library(bnlearn)
+library(Rgraphviz)
+library(lubridate)
+## New Lib
+#remotes::install_github("geocompr/geocompkg")
+library(sf)
+library(raster)
+library(spData)
+library(spDataLarge)
+library(tmap)    # for static and interactive maps
+library(leaflet) # for interactive maps#
+```
+# Data sets
+We are going use three datasets in this project. These datasets will cover the period before the election (approval rate data), period during the election (US Election 2020 Tweets), and last dataset for the actual election results (XXXXXXXX). The following section will elaborate more on these dataseta and the main role for each one.
+
+## approval rate data
+XXXX
+
+## US Election 2020 Tweets
+The "U.S. election 2020 Tweets" is the main dataset for this project. The dataset contains Tweets collected using Twitter API during the most critical period in the presidency election race. Tweets are splited into 2 CSV files. The first file contains all tweets with hastag related to election and Donald Trump while the other one contains tweets with hashtag for Joe Biden. Both files cover the period from 15th-Oct 2020 to 8th-Nov-2020. Dataset contains many other useful information beside tweet text as number of like, number of retweets, user location (continent, country, state...etc.), user name on tweeter and some other useful information. The following paragraph will share some statisctics on this data sets.
+
+**Dataset name:** US Election 2020 Tweets
+**Description:** Tweets collected, using the Twitter API statuses_lookup and snsscrape during the election period. The dataset contains 2 files, one of the former president “Donald Trump” and the other one for tweets related to the current president “Joe Biden”.
+
+**Source:** <https://www.kaggle.com/manchunhui/us-election-2020-tweets> 
+**Type:** CSV
+**Size:** 0.8 GB
+**Number of files:** 2
+**Number of variables:** 21
+**Number of observations:** ~ 2 M records
+**Suggested database:** Although the tweets are unstructured data in nature, but the data stored in CSV tabular format, so we can store it in any database. Relational DB, Graph database, or NoSQL database
+**Key Columns**: The following attributes will be as the reference columns that can be used to join this dataset with the other two datasets that we rae going to use in this project (approval rate data) and  (XXXXXXXX)
+
+### Data profiling and exploration
+
+#### Loading data
+
+**File # 1**: hashtag_donaldtrump.csv
+Importing tweets that contain hashtag "**Donald Trump**". A new column "hashtag" with static value "Trump" been added to distinguage between data loaded from this file
+```{r IMPORT_DATA_TRUMP, echo=TRUE}
+Trump <- read_csv("Data/hashtag_donaldtrump.csv") 
+Trump$hashtag <-"Trump"
+```
+**File # 2: **hashtag_joebiden.csv 
+Importing tweets that contain hashtag "**Joe Biden**". A new column "hashtag" with static value "Biden" been added to distinguage between data loaded from this file
+```{r IMPORT_DATA_BIDEN, echo=TRUE}
+Biden <- read_csv("Data/hashtag_joebiden.csv") 
+Biden$hashtag <- "Biden"
+Biden[['created_at']] <- as.Date(Biden[['created_at']], format='%Y-%m-%d  %H:%M:%S')
+Biden.Trump.merged <- rbind(Trump,Biden)
+```
+We have a small problem with data type for "created_at" feature in the biden CSV file as it was stored as string and we want to convert that to date.
+```{r , echo=TRUE}
+Biden[['created_at']] <- as.Date(Biden[['created_at']], format='%Y-%m-%d  %H:%M:%S')
+Biden.Trump.merged <- rbind(Trump,Biden)
+```
+
+Finally we want to merge both datasets into one consolidate dataset.
+```{r , echo=TRUE}
+Biden.Trump.merged <- rbind(Trump,Biden)
+```
+
+**Note(s):**
+  + We can see small number of tweets faild to load around 1000 records out of 2 million     records.
+
+
+#### Profiling the consolidated dataset
+
+There is around 2 Million records / tweets in the first dataset (1,748,160) and 22 variable. 
+```{r, include=TRUE}
+dim(Bidn.Trump.merged)
+```
+Thoes variables are described below:
+```{r, include=TRUE}
+names(Biden.Trump.merged)
+```
+
+The following paragraph shows summary information about each variable
+```{r, include=TRUE}
+summary(Biden.Trump.merged)
+```
+```{r, include=TRUE}
+summary(Biden.Trump.merged$created_at)
+ 
+
+```
+
+We can observe a hug number of null values in "lat" and "Long" columns, so we need to assess if this will impact our future analysis.
+
+The following paragraph show the data strucure for the consiloidated dataset 
+```{r, include=TRUE}
+str(Biden.Trump.merged)
+```
+
+
+#### Histogram for the most important columns
+In this section we will shed the light on the most important columns in this data set, Also we will remove unuseful variables.
+
+
+##### created_at
+This column show the date of creation for each tweet. we want to make sure that it doens't contain null or unexpected information.
+The follwoing graph show number of tweets per month:
+```{r, include=TRUE}
+created_at_month.p<- qplot(month(Biden.Trump.merged$created_at), data = Biden.Trump.merged)
+created_at_month.p + coord_flip() + geom_bar( fill="steelblue") + theme_minimal() 
+#+ geom_text()
+```
+```{r, include=TRUE}
+qplot(Biden.Trump.merged$created_at, data = Biden.Trump.merged, geom = "freqpoly") 
+#+ geom_text()
+```
+
+```{r, include=TRUE}
+qplot(data = Biden.Trump.merged, x=Biden.Trump.merged$created_at, xlab="Creation Date"
+      , ylab ="No of Tweets" , geom = "freqpoly" ) 
+
+```
+
+
+```{r, include=TRUE}
+qplot(Biden.Trump.merged$created_at, data = Biden.Trump.merged, geom = "freqpoly", fill="steelblue", color=Biden.Trump.merged$hashtag)+theme(legend.position="bottom")
+#+ labs(title="Number of tweets by Creation date", x ="Created at", y = "No. of tweets")
+
+
+```
+
+##### Geographical Information
+The next task is to analyis geographocal information that we have in this dataset
+```{r, include=TRUE}
+continent.p<- qplot(Biden.Trump.merged$continent, data = Biden.Trump.merged)
+continent.p + coord_flip() + geom_bar( fill="steelblue") + theme_minimal() 
+#+ geom_text(aes(label=continent))
+```
+As we can see, there are many null values in the continent column. The next chart will show number iof tweets after removing all null values
+
+```{r, include=TRUE}
+Biden.Trump.merged.na<- drop_na(Biden.Trump.merged)
+qplot(Biden.Trump.merged.na$continent, data = Biden.Trump.merged.na ) + coord_flip() + geom_bar( fill="steelblue") + theme_minimal() 
+#+ geom_text(aes(label=continent))
+```
+
+Let's examine the Country distinct values to make sure that we done't have data quality issues in that column.
+```{r, include=TRUE}
+unique(filter(Biden.Trump.merged, substr(Biden.Trump.merged$country,1,6) == "United")$country)
+```
+We can see that we have a data quality issue here as United States stored in the dataset using two different values
+  + United States of America
+  + United States
+To fix that we will replace "United States of America" values with  "United States" value.
+
+```{r, include=TRUE}
+Biden.Trump.merged$country[Biden.Trump.merged$country == "United States of America"] <- "United States"
+```
+
+Now, we have only one value to represent **"United States"**
+```{r, include=TRUE}
+unique(filter(Biden.Trump.merged, substr(Biden.Trump.merged$country,1,6) == "United")$country)
+```
+Now let's check Stats of the "United States" by state name:
+```{r, include=TRUE}
+unique(filter(Biden.Trump.merged, Biden.Trump.merged$country == "United States")$state)
+```
+Now let's check Stats of the "United States" by state code:
+```{r, include=TRUE}
+unique(filter(Biden.Trump.merged, Biden.Trump.merged$country == "United States")$state_code)
+```
+
+
+
+```{r, include=TRUE}
+Biden.Trump.merged.US<-filter(Biden.Trump.merged.na, continent == "North America")
+qplot(Biden.Trump.merged.US$country, data = Biden.Trump.merged.US ) + coord_flip() + geom_bar( fill="steelblue") + theme_minimal() 
+#+ geom_text(aes(label=continent))
+```
+
+```{r, include=TRUE}
+qplot(Trump$likes, data = Trump) +
+  #geom_point(alpha = 0.5, color="aquamarine4", position = position_jitter(h = 0)) 
+ xlim(min(Trump$likes),250)
+
+#continent.p + coord_flip() + geom_bar( fill="steelblue") + theme_minimal() 
+#+ geom_text(aes(label=continent))
+```
+
+```{r, include=TRUE}
+qplot(Trump$retweet_count, data = Trump) #+
+  #geom_point(alpha = 0.5, color="aquamarine4", position = position_jitter(h = 0)) 
+ xlim(min(Trump$retweet_coun),10000)
+
+#continent.p + coord_flip() + geom_bar( fill="steelblue") + theme_minimal() 
+#+ geom_text(aes(label=continent))
+```
+```{r, include=TRUE}
+qplot(Biden.Trump.merged$created_at, data = Biden.Trump.merged, geom = "freqpoly", fill="steelblue", color=Biden.Trump.merged$hashtag)+theme(legend.position="bottom")
+```
+```{r, include=TRUE}
+Biden.Trump.merged.cleansed <- drop_na(Biden.Trump.merged)
+qplot(Biden.Trump.merged.cleansed$created_at, data = Biden.Trump.merged.cleansed, geom = "freqpoly", fill="steelblue", color=Biden.Trump.merged.cleansed$hashtag)+theme(legend.position="bottom")
+```
+
+ 
+ 
